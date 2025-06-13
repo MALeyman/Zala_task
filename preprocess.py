@@ -1,5 +1,4 @@
 
-import os
 import glob
 import xml.etree.ElementTree as ET
 import cv2
@@ -9,7 +8,7 @@ from typing import List, Tuple
 from PIL import Image
 
 
-
+# Конвертирует датасет в YOLO формат
 def convert_voc_to_yolo(xml_file, output_dir, class_names=None):
     """ 
         Конвертирует датасет в YOLO формат
@@ -48,7 +47,7 @@ def convert_voc_to_yolo(xml_file, output_dir, class_names=None):
 
 
 
-
+# Количество объектов по классам 
 def count_objects_by_class(path):
     ''' 
         Количество объектов по классам 
@@ -74,8 +73,13 @@ def count_objects_by_class(path):
 
 
 
-
+# Обработка разметки.
 def cleaned1(class_map, remove_classes, input_dir, path_dataset):
+    ''' 
+        Обработка разметки.
+        remove_classes: удаляемые классы.
+        class_map:  объединяемые классы.
+    '''
     output_dir = "cleaned_labels"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -115,7 +119,7 @@ def cleaned1(class_map, remove_classes, input_dir, path_dataset):
     print("Готово: все обновлённые разметки сохранены в cleaned_labels/")
 
 
-
+# Поиск в файлах нужного класса
 def find_images_with_class(label_dir, target_class=3):
     ''' 
         Поиск в файлах нужного класса
@@ -135,9 +139,7 @@ def find_images_with_class(label_dir, target_class=3):
     return matched_files
 
 
-import os
-import shutil
-import random
+
 
 def splitting_dataset(image_dir, label_dir, output_base_dir, 
                       train_ratio=0.75, val_ratio=0.10, test_ratio=0.15):
