@@ -23,8 +23,8 @@ def creation_video(image_path, num_vid=0, win_size=1200, num_frames = 700, step 
     num_frames = 700  # Количество кадров
 
     # Создание видео
-    output_video_path = "videos/output5.avi"
-    os.makedirs("videos", exist_ok=True)
+    output_video_path = "videos/video_out/output5.avi"
+    os.makedirs("videos/video_out", exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*"XVID")
     out = cv2.VideoWriter(output_video_path, fourcc, fps, (win_size, win_size))
     print(output_video_path)
