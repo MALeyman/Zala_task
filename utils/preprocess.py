@@ -835,7 +835,24 @@ def convert_gpg1(path_dataset, image, labels, image_jpeg):
     print("PNG успешно конвертированы в JPEG!")
 
 
+def mix():
+    # ПАРАМЕТРЫ 
+    SRC_IMG_DIR   = "/home/maksim/develops/python/devsTraining/zala_task/dataset/UNION_dataset/image/test/"        
+    SRC_LBL_DIR   = "/home/maksim/develops/python/devsTraining/zala_task/dataset/UNION_dataset/target/test/"
+    OUT_IMG_DIR   = "dataset/custom_dataset/mix_out/images"        
+    OUT_LBL_DIR   = "dataset/custom_dataset/mix_out/labels"
 
+    IMG_SIZE      = 1024                    # итоговый квадрат
+    CTX_MARGIN    = 8                       # паддинг вокруг bbox (px)
+    N_MIN, N_MAX  = 20, 100                 # требуемый диапазон объектов
+    OVERLAP_IOU   = 0.05                    # макс. IoU между вставками
+    SKIP_CLASSES  = {0, 2, 3, 4}            # какие классы НЕ переносим
+    patch_margin = 16                       # отступ от других объектов в пикселях
+    # SKIP_CLASSES  = {0} 
+
+    # random.seed(42)
+
+    mix_img(SRC_IMG_DIR, SRC_LBL_DIR, OUT_IMG_DIR, OUT_LBL_DIR, img_size=IMG_SIZE, margin=CTX_MARGIN, n_min=N_MIN, n_max=N_MAX, over_iou=OVERLAP_IOU, skip_classes=SKIP_CLASSES, patch_margin=patch_margin)
 
 
 
