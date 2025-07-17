@@ -2,14 +2,21 @@
 
 
 
-
-
 import os
-import torch
-import numpy as np
-from torch.utils.data import Dataset
+import glob
 from PIL import Image
+import torch
+from torch.utils.data import Dataset
+import torchvision.transforms as transforms
+import numpy as np
 import torchvision.transforms as T
+
+
+
+
+
+
+
 
 class MobileNetDataset(Dataset):
     """
@@ -239,6 +246,61 @@ def draw_gt_boxes(img_tensor,
 
 
 
+
+
+class YOLOHeatmapDataset(Dataset):
+    """
+    Dataset для anchor-based multi-label классификации ячеек по YOLO-аннотациям.
+    Каждой ячейке может быть присвоено до B классов (по якорям).
+
+    Возвращает:
+        img: Tensor [3, H, W]
+        target: Tensor [B*C, S, S]
+    """
+
+    def __init__(self, images_dir, labels_dir, image_size=736, grid_size=30, num_classes=8, num_anchors=3, transform=None):
+        self.image_paths = sorted(glob.glob(os.path.join(images_dir, '*.jpg')))
+        self.label_paths = sorted(glob.glob(os.path.join(labels_dir, '*.txt')))
+        self.image_size = image_size
+        self.grid_size = grid_size
+        self.num_classes = num_classes
+        self.num_anchors = num_anchors
+        self.transform = transform or transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img = Image.open(self.image_paths[idx]).convert('RGB')
+        img = self.transform(img)
+
+        target = torch.zeros((self.num_anchors, self.num_classes, self.grid_size, self.grid_size))
+
+        with open(self.label_paths[idx], 'r') as f:
+            for line in f:
+                cls, cx, cy, w, h = map(float, line.strip().split())
+                cls = int(cls)
+
+                gx = int(cx * self.grid_size)
+                gy = int(cy * self.grid_size)
+
+                # добавляем метку в свободный anchor (или в последний)
+                placed = False
+                for anchor in range(self.num_anchors):
+                    if target[anchor, cls, gy, gx] == 0:
+                        target[anchor, cls, gy, gx] = 1
+                        placed = True
+                        break
+                if not placed:
+                    target[-1, cls, gy, gx] = 1
+
+        # выход  [B*C, S, S]
+        target = target.view(self.num_anchors * self.num_classes, self.grid_size, self.grid_size)
+
+        return img, target
 
 
 

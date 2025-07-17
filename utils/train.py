@@ -18,6 +18,11 @@ import matplotlib.patches as patches
 import numpy as np
 import torch
 
+
+
+
+
+
 def yolo_loss(pred, target, B, C=8, lambda_coord=5.0, lambda_obj=1.0, lambda_noobj=0.1):
     """
         Функция потерь для модели, вычисляющая общую потерю (loss) для каждой ячейки сетки.
@@ -603,9 +608,239 @@ def train_mobile_net(model, train_loader_1, train_loader_2, train_loader_3, trai
 
 
 
+def calculate_precision_recall(preds, targets, num_anchors=3, num_classes=8, threshold=0.5):
+    """
+    Вычисляет precision и recall по каждому классу для anchor-based multi-label классификации ячеек.
+
+    Аргументы:
+        preds:   [batch_size, B*C, S, S] — логиты
+        targets: [batch_size, B*C, S, S] — бинарные метки
+        threshold: float — порог для перевода логитов в бинарные предсказания
+
+    Возвращает:
+        precisions: list[float], по num_classes
+        recalls:    list[float], по num_classes
+    """
+    B, BC, S, _ = preds.shape
+    assert BC == num_anchors * num_classes, f"Ожидалось B*C каналов, но получили {BC}"
+
+    preds = preds.view(B, num_anchors, num_classes, S, S)
+    targets = targets.view(B, num_anchors, num_classes, S, S)
+
+    # сигмоида + бинаризация
+    pred_mask = torch.sigmoid(preds) > threshold
+    target_mask = targets.bool()
+
+    # агрегируем по якорям — если хотя бы один якорь предсказал класс в ячейке
+    pred_per_cell = pred_mask.any(dim=1)     # [B, C, S, S]
+    target_per_cell = target_mask.any(dim=1) # [B, C, S, S]
+
+    precisions, recalls = [], []
+
+    for c in range(num_classes):
+        pred_flat = pred_per_cell[:, c].flatten()
+        true_flat = target_per_cell[:, c].flatten()
+
+        TP = (pred_flat & true_flat).sum().item()
+        FP = (pred_flat & ~true_flat).sum().item()
+        FN = (~pred_flat & true_flat).sum().item()
+
+        precision = TP / (TP + FP + 1e-8)
+        recall = TP / (TP + FN + 1e-8)
+
+        precisions.append(precision)
+        recalls.append(recall)
+
+    return precisions, recalls
 
 
 
+def plot_metrics(history):
+    epochs = range(1, len(history['train_loss']) + 1)
+
+    plt.figure(figsize=(16, 5))
+
+    plt.subplot(1, 3, 1)
+    plt.plot(epochs, history['train_loss'], label='Train Loss')
+    plt.plot(epochs, history['val_loss'], label='Val Loss')
+    plt.title('Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+
+    plt.subplot(1, 3, 2)
+    plt.plot(epochs, history['train_prec'], label='Train Precision')
+    plt.plot(epochs, history['val_prec'], label='Val Precision')
+    plt.title('Precision')
+    plt.xlabel('Epoch')
+    plt.ylabel('Precision')
+    plt.legend()
+
+    plt.subplot(1, 3, 3)
+    plt.plot(epochs, history['train_recall'], label='Train Recall')
+    plt.plot(epochs, history['val_recall'], label='Val Recall')
+    plt.title('Recall')
+    plt.xlabel('Epoch')
+    plt.ylabel('Recall')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+ 
+
+def train_model_grid_net(model,
+    train_loader_1,
+    train_loader_2,
+    train_loader_3,
+    train_loader_4, 
+    val_loader, 
+    optimizer, scheduler, loss_fn, metric_fn,
+                num_epochs=1, device='cuda', save_path='best_model.pth'):
+
+    model = model.to(device)
+    history = {
+        'train_loss': [], 'val_loss': [],
+        'train_prec': [], 'val_prec': [],
+        'train_recall': [], 'val_recall': []
+    }
+
+    best_val_recall = 0.0  # для отслеживания лучшего recall
+
+    for epoch in range(num_epochs):
+        model.train()
+        train_loss, train_prec, train_recall = 0, 0, 0
+
+        # Обучение модели
+        if (epoch + 1) < 2:
+            train_loader = train_loader_2
+
+        elif (epoch + 1) < 4:
+            train_loader = train_loader_1
+        elif (epoch + 1) % 2 == 0:
+            train_loader = train_loader_4
+         
+        else:
+            train_loader = train_loader_3
+        
+
+
+        loop = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{num_epochs}]", leave=False)
+        for images, targets in loop:
+            images = images.to(device)
+            targets = targets.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(images)
+
+    
+            loss = loss_fn(outputs, targets)
+            loss.backward()
+            optimizer.step()
+
+            prec, recall = metric_fn(outputs.detach(), targets)
+
+            train_loss += loss.item()
+
+            avg_prec = sum(prec) / len(prec)
+            avg_recall = sum(recall) / len(recall)
+
+            train_prec += avg_prec
+            train_recall += avg_recall
+
+
+            loop.set_postfix(loss=loss.item(), prec=prec, recall=recall)
+
+        n_train = len(train_loader)
+        history['train_loss'].append(train_loss / n_train)
+        history['train_prec'].append(train_prec / n_train)
+        history['train_recall'].append(train_recall / n_train)
+
+        # Валидация
+        model.eval()
+        val_loss, val_prec, val_recall = 0, 0, 0
+
+        with torch.no_grad():
+            val_loop = tqdm(val_loader, desc=f"Validation [{epoch+1}/{num_epochs}]", leave=False)
+            for images, targets in val_loop:
+
+                images = images.to(device)
+                targets = targets.to(device)
+
+                outputs = model(images)
+                loss = loss_fn(outputs, targets)
+                prec, recall = metric_fn(outputs, targets)
+
+                val_loss += loss.item()
+
+                avg_prec = sum(prec) / len(prec)
+                avg_recall = sum(recall) / len(recall)
+
+                val_prec += avg_prec
+                val_recall += avg_recall
+
+                val_loop.set_postfix(loss=loss.item(), prec=prec, recall=recall)
+
+        n_val = len(val_loader)
+        history['val_loss'].append(val_loss / n_val)
+        history['val_prec'].append(val_prec / n_val)
+        history['val_recall'].append(val_recall / n_val)
+
+        print(f"\n Epoch {epoch+1}/{num_epochs} | "
+              f"Train Loss: {history['train_loss'][-1]:.4f} | Val Loss: {history['val_loss'][-1]:.4f} | "
+              f"Val Prec: {history['val_prec'][-1]:.4f} | Val Recall: {history['val_recall'][-1]:.4f}\n")
+        recall_avg = val_recall / n_val
+        # Сохраняем лучшую модель по recall
+        if recall_avg > best_val_recall:
+            best_val_recall = recall_avg
+            torch.save(model.state_dict(), save_path)
+            print(f"Сохранена лучшая модель {epoch+1} с val recall {best_val_recall:.4f}")
+
+        scheduler.step()
+
+    plot_metrics(history)
+    return history
 
 
 
+class YOLOSimplifiedLoss(nn.Module):
+    def __init__(self, S, B, C, lambda_obj=1.0, lambda_noobj=0.2, lambda_cls=1.0):
+        """
+        S — размер сетки
+        B — количество якорей на ячейку
+        C — количество классов
+        """
+        super(YOLOSimplifiedLoss, self).__init__()
+        self.S = S
+        self.B = B
+        self.C = C
+
+        self.lambda_obj = lambda_obj
+        self.lambda_noobj = lambda_noobj
+        self.lambda_cls = lambda_cls
+
+        self.bce = nn.BCEWithLogitsLoss(reduction='sum')  # для objectness и классов
+
+    def forward(self, predictions, targets):
+        """
+        predictions: [bath, B*C, S, S] — логиты
+        targets:     [bath, B*C, S, S] — бинарные метки (0 или 1)
+        """
+        batch_size = predictions.size(0)
+
+        # [bath, B, C, S, S]
+        preds = predictions.view(batch_size, self.B, self.C, self.S, self.S)
+        targs = targets.view(batch_size, self.B, self.C, self.S, self.S)
+
+        # Objectness mask (есть ли объект в позиции)
+        obj_mask = targs > 0.5  # [bath, B, C, S, S]
+        noobj_mask = ~obj_mask
+
+        # Objectness loss
+        obj_loss = self.bce(preds[obj_mask], targs[obj_mask])
+        noobj_loss = self.bce(preds[noobj_mask], targs[noobj_mask])
+
+        total_loss = self.lambda_obj * obj_loss + self.lambda_noobj * noobj_loss
+        total_loss = total_loss / batch_size
+
+        return total_loss

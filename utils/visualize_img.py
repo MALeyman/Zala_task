@@ -102,7 +102,73 @@ def visualize_img_full(images_path="dataset/datasets_full/images/train", labels_
 
 
 
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+import torch
 
+def visualize_sample(image, target, threshold=0.5, class_names=None, num_anchors=3, num_classes=8):
+    """
+    Визуализация предсказаний или разметки heatmap'а формата [B*C, S, S].
+    
+    image: Tensor [3, H, W]
+    target: Tensor [B*C, S, S]
+    """
+    image = image.permute(1, 2, 0).cpu().numpy()
+    H, W = image.shape[:2]
+    
+    BxC, S, _ = target.shape
+    assert BxC == num_anchors * num_classes, "target shape должен быть [B*C, S, S]"
+
+    # Восстановим форму [B, C, S, S]
+    target = target.view(num_anchors, num_classes, S, S)
+
+    grid_y = np.linspace(0, H, S + 1, dtype=int)
+    grid_x = np.linspace(0, W, S + 1, dtype=int)
+
+    class_cells = []
+    for gy in range(S):
+        for gx in range(S):
+            for a in range(num_anchors):
+                for c in range(num_classes):
+                    if target[a, c, gy, gx] > threshold:
+                        x1 = grid_x[gx]
+                        y1 = grid_y[gy]
+                        x2 = grid_x[gx + 1]
+                        y2 = grid_y[gy + 1]
+                        class_cells.append((c, gy, gx, x1, y1, x2 - x1, y2 - y1))
+
+    # 1) Первая фигура: изображение с сеткой и ячейками 
+    fig_img, ax_img = plt.subplots(figsize=(12, 12))
+    ax_img.imshow(image)
+    ax_img.set_title('Изображение с ячейками')
+
+    for x in grid_x:
+        ax_img.axvline(x=x, color='white', linestyle='--', linewidth=0.2)
+    for y in grid_y:
+        ax_img.axhline(y=y, color='white', linestyle='--', linewidth=0.2)
+
+    for c, gy, gx, x1, y1, w, h in class_cells:
+        ax_img.add_patch(patches.Rectangle((x1, y1), w, h, edgecolor='lime', linewidth=1, fill=False))
+        ax_img.text(x1 + 2, y1 + 12, f"{c if class_names is None else class_names[c]}", color='red', fontsize=7)
+
+    plt.tight_layout()
+    plt.show()
+
+
+        # 2) Вторая фигура: список объектов и ячеек 
+    fig_text, ax_text = plt.subplots(figsize=(6, max(3, len(class_cells) * 0.25)))
+    ax_text.axis('off')
+    ax_text.set_title('Обнаруженные классы и ячейки', fontsize=12, pad=10)
+
+    for idx, (c, gy, gx, *_ ) in enumerate(class_cells):
+        name = class_names[c] if class_names else f"Класс {c}"
+        ax_text.text(0.01, 1 - idx * 0.05, f"{name} -> Ячейка (Y={gy}, X={gx})",
+                     fontsize=10, verticalalignment='top', transform=ax_text.transAxes)
+
+
+    plt.tight_layout()
+    plt.show()
 
 
 

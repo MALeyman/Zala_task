@@ -53,3 +53,45 @@ class YOLOv2MobileNet(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+
+
+class YOLOCellClassifier(nn.Module):
+    """
+    Модель на базе MobileNetV2 для предсказания anchor-based heatmap.
+    
+    Параметры:
+        num_classes (int): Количество классов объектов (C).
+        num_anchors (int): Количество якорей на ячейку (B).
+        grid_size (int): Размер сетки по одной стороне (S).
+    Упрощённая anchor-based модель: предсказывает, есть ли объект каждого класса
+    в каждой ячейке (до B объектов).
+
+    """
+    def __init__(self, num_classes=8, num_anchors=3, grid_size=30):
+        super(YOLOCellClassifier, self).__init__()
+        self.C = num_classes
+        self.B = num_anchors
+        self.S = grid_size
+
+        mobilenet = models.mobilenet_v2(weights=None)
+        self.backbone = mobilenet.features  # [B, 1280, H/32, W/32]
+
+        out_channels = self.B * self.C  # только вероятности классов
+
+        self.head = nn.Sequential(
+            nn.Conv2d(1280, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(512, out_channels, kernel_size=1),
+            nn.Upsample(size=(self.S, self.S), mode='bilinear', align_corners=False)
+        )
+
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.head(x)
+        return x  # [bath_size, B*C, S, S]
+
+
+
+
