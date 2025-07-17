@@ -93,3 +93,8 @@ if __name__ == '__main__':
     video_detection(path_current, s_model_path_UAVOD_4, video_path = "videos/video_in/video_12.avi", output_video_path = "videos/video_out/video_yolo_s_UAVOD_231.avi", target_classes=target_classes)
 
 
+
+
+
+
+
